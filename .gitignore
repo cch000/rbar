@@ -1,0 +1,15 @@
+.direnv
+result
+
+debug/
+target/
+
+*.json
+
+**/*.rs.bk
+
+
+
+# Added by cargo
+
+/target
