@@ -40,6 +40,8 @@
           src = ./.;
 
           cargoLock.lockFile = ./Cargo.lock;
+
+          meta.mainProgram = name;
         };
       in {
         inherit rbar;
