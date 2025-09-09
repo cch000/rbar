@@ -1,9 +1,23 @@
 label {
-    color: #ff7800;
+    color: black;
     background-color: black;
+    padding-left: 3px;
+    padding-right: 3px;
     margin-right: 3px;
-    margin-left: 3px;
-    padding-right: 10px;
+    margin-top: 3px;
+    margin-bottom: 3px;
+}
+
+label.hostname-running {
+    background-color: #00b817;
+}
+
+label.hostname-not-running {
+    background-color: #ff7800;
+}
+
+label.hostname-unreachable {
+    background-color: red;
 }
 
 box {

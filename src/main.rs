@@ -16,11 +16,9 @@ struct Info {
 }
 
 fn load_css() {
-    // Load the CSS file and add it to the provider
     let provider = CssProvider::new();
     provider.load_from_path("style.css");
 
-    // Add the provider to the default screen
     gtk4::style_context_add_provider_for_display(
         &Display::default().expect("Could not connect to a display."),
         &provider,
@@ -34,6 +32,19 @@ fn poll_server(hostname: &str) -> Result<Info, Box<dyn Error>> {
     };
 
     Ok(res.json::<Info>()?)
+}
+
+fn update_label(label: &Label, hostname: &str) {
+    match poll_server(hostname) {
+        Ok(info) => {
+            if info.status == "running" {
+                label.set_css_classes(&["hostname-running"]);
+            } else {
+                label.set_css_classes(&["hostname-not-running"]);
+            }
+        }
+        Err(_) => label.set_css_classes(&["hostname-unreachable"]),
+    }
 }
 
 fn activate_with_hostnames(application: &Application, hostnames: Vec<String>) {
@@ -63,35 +74,20 @@ fn activate_with_hostnames(application: &Application, hostnames: Vec<String>) {
         hostname_label.set_single_line_mode(true);
         hostname_label.set_text(&hostname);
 
-        let status_label = Label::new(None);
-        status_label.set_single_line_mode(true);
-        status_label.set_text("");
-
         let host_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
         host_box.append(&hostname_label);
-        host_box.append(&status_label);
-
-        match poll_server(&hostname) {
-            Ok(info) => {
-                if info.status == "running" {
-                    status_label.set_markup("<span foreground=\"green\"></span>");
-                } else {
-                    status_label.set_markup("<span foreground=\"red\"></span>");
-                }
-            }
-            Err(_) => status_label.set_markup("<span foreground=\"purple\"></span>"),
-        }
 
         box_container.append(&host_box);
 
+        update_label(&hostname_label, &hostname);
+
         let tick = move || {
-            //label.set_text(&build_text(&hostname));
+            update_label(&hostname_label, &hostname);
             glib::ControlFlow::Continue
         };
 
         glib::timeout_add_seconds_local(60 * 15, tick);
     }
-
 
     window.set_child(Some(&box_container));
     window.show();
@@ -105,12 +101,11 @@ fn main() {
 
     application.connect_startup(|_| load_css());
 
-    // Handle command line arguments properly using connect_command_line
     application.connect_command_line(|app, cmdline| {
         let args = cmdline.arguments();
         let hostnames: Vec<String> = args
             .iter()
-            .skip(1) // Skip the program name
+            .skip(1)
             .map(|s| s.clone().into_string().unwrap())
             .collect();
 
