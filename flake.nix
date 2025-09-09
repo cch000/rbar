@@ -1,6 +1,4 @@
 {
-  description = "A TUI application for movies";
-
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   };
@@ -12,7 +10,7 @@
     platforms = nixpkgs.lib.platforms.all;
     forAllplatforms = nixpkgs.lib.genAttrs platforms;
 
-    name = "movies-tui";
+    name = "rbar";
 
     mkInputs = pkgs: {
       nativeBuildInputs = with pkgs; [
@@ -33,7 +31,7 @@
         pkgs = nixpkgs.legacyPackages.${platform};
         inputs = mkInputs pkgs;
 
-        movies-tui = pkgs.rustPlatform.buildRustPackage {
+        rbar = pkgs.rustPlatform.buildRustPackage {
           inherit (inputs) nativeBuildInputs buildInputs;
           inherit name;
 
@@ -42,17 +40,10 @@
           src = ./.;
 
           cargoLock.lockFile = ./Cargo.lock;
-
-          meta = with pkgs.lib; {
-            inherit platforms;
-            description = "TUI application for movies";
-            maintainers = ["cch000"];
-            license = licenses.gpl3Plus;
-          };
         };
       in {
-        inherit movies-tui;
-        default = movies-tui;
+        inherit rbar;
+        default = rbar;
       }
     );
 
@@ -63,7 +54,7 @@
       in {
         default = pkgs.mkShell {
           inherit (inputs) nativeBuildInputs buildInputs;
-          #inputsFrom = [self.packages.${platform}.default];
+          inputsFrom = [self.packages.${platform}.default];
           packages = with pkgs; [
             nixd
             alejandra

@@ -1169,6 +1169,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
 
 [[package]]
+name = "rbar"
+version = "0.1.0"
+dependencies = [
+ "gio",
+ "gtk4",
+ "gtk4-layer-shell",
+ "reqwest",
+ "serde",
+]
+
+[[package]]
 name = "reqwest"
 version = "0.12.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1222,17 +1233,6 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "rust-desktop"
-version = "0.1.0"
-dependencies = [
- "gio",
- "gtk4",
- "gtk4-layer-shell",
- "reqwest",
- "serde",
 ]
 
 [[package]]

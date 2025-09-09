@@ -1,4 +1,4 @@
-use gio::glib::{self};
+use gio::glib::{self, ExitCode};
 use gtk4::gdk::Display;
 use gtk4::{Application, ApplicationWindow, Label};
 use gtk4::{CssProvider, prelude::*};
@@ -93,9 +93,9 @@ fn activate_with_hostnames(application: &Application, hostnames: Vec<String>) {
     window.show();
 }
 
-fn main() {
+fn main() -> ExitCode {
     let application = Application::builder()
-        .application_id("com.example.HephaestusStatus")
+        .application_id("com.cch000.rbar")
         .flags(gio::ApplicationFlags::HANDLES_COMMAND_LINE)
         .build();
 
@@ -109,9 +109,16 @@ fn main() {
             .map(|s| s.clone().into_string().unwrap())
             .collect();
 
+        if hostnames.len() == 0 {
+            eprintln!("No arguments provided");
+            return ExitCode::FAILURE;
+        };
+
         activate_with_hostnames(app, hostnames);
         0.into()
     });
 
     application.run();
+
+    ExitCode::SUCCESS
 }
