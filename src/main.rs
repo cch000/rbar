@@ -1,5 +1,4 @@
-use gio::File;
-use gio::glib::{self, ExitCode};
+use gio::glib::{self, ExitCode, clone};
 use gtk4::gdk::Display;
 use gtk4::{Application, ApplicationWindow, Label};
 use gtk4::{CssProvider, prelude::*};
@@ -29,7 +28,7 @@ fn load_css() {
 
 fn poll_server(hostname: &str) -> Result<Info, Box<dyn Error>> {
     let Ok(res) = reqwest::blocking::get(format!("http://{hostname}:8114/status")) else {
-        return Err("Failed to connect to server".into());
+        return Err(format!("Failed to connect to server {hostname}").into());
     };
 
     Ok(res.json::<Info>()?)
@@ -68,30 +67,50 @@ fn activate_with_hostnames(application: &Application, hostnames: Vec<String>) {
 
     let box_container = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
 
-    for hostname in hostnames {
-        let hostname = hostname.to_string();
+    let labels: Vec<Label> = hostnames
+        .iter()
+        .map(|hostname| {
+            let label = Label::new(Some(hostname));
+            label.set_single_line_mode(true);
+            label.set_css_classes(&["hostname-loading"]);
 
-        let hostname_label = Label::new(Some(&hostname));
-        hostname_label.set_single_line_mode(true);
-        hostname_label.set_text(&hostname);
+            box_container.append(&label);
+            label
+        })
+        .collect();
 
-        let host_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-        host_box.append(&hostname_label);
+    let hostnames_clone = hostnames.clone();
 
-        box_container.append(&host_box);
+    //Give some margin during startup
+    labels
+        .iter()
+        .zip(hostnames_clone)
+        .for_each(|(label, hostname)| {
+            glib::spawn_future_local(clone!(
+                #[weak]
+                label,
+                async move {
+                    let mut counter = 0;
+                    while poll_server(&hostname).is_err() && counter < 6 {
+                        glib::timeout_future_seconds(5).await;
+                        counter += 1;
+                    }
+                    update_label(&label, &hostname);
+                }
+            ));
+        });
 
-        update_label(&hostname_label, &hostname);
+    let tick = move || {
+        labels.iter().zip(&hostnames).for_each(|(label, hostname)| {
+            update_label(label, hostname);
+        });
+        glib::ControlFlow::Continue
+    };
 
-        let tick = move || {
-            update_label(&hostname_label, &hostname);
-            glib::ControlFlow::Continue
-        };
-
-        glib::timeout_add_seconds_local(60 * 15, tick);
-    }
+    glib::timeout_add_seconds_local(60 * 15, tick);
 
     window.set_child(Some(&box_container));
-    window.show();
+    window.present();
 }
 
 fn main() -> ExitCode {
@@ -110,10 +129,10 @@ fn main() -> ExitCode {
             .map(|s| s.clone().into_string().unwrap())
             .collect();
 
-        if hostnames.len() == 0 {
+        if hostnames.is_empty() {
             eprintln!("No arguments provided");
             return ExitCode::FAILURE;
-        };
+        }
 
         activate_with_hostnames(app, hostnames);
         0.into()

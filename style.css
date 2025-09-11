@@ -20,6 +20,10 @@ label.hostname-unreachable {
     background-color: red;
 }
 
+label.hostname-loading {
+    background-color: grey;
+}
+
 box {
     background-color: black;
 }
