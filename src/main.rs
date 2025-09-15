@@ -1,5 +1,6 @@
 use gio::glib::{self, ExitCode};
 use gtk4::gdk::Display;
+use gtk4::subclass::window;
 use gtk4::{Application, ApplicationWindow, Label};
 use gtk4::{CssProvider, prelude::*};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
@@ -95,6 +96,9 @@ fn activate_with_hostnames(application: &Application, hostnames: &[String]) {
         })
         .collect();
 
+    window.set_child(Some(&box_container));
+    window.present();
+
     for host in hosts.clone() {
         glib::spawn_future_local(async move {
             let mut attempts = 0;
@@ -110,13 +114,14 @@ fn activate_with_hostnames(application: &Application, hostnames: &[String]) {
         for host in &hosts {
             update_label(&host.label, &host.hostname);
         }
+
+        //reset window size to the minimum
+        window.set_default_size(-1, -1);
+
         glib::ControlFlow::Continue
     };
 
-    glib::timeout_add_seconds_local(60 * 15, tick);
-
-    window.set_child(Some(&box_container));
-    window.present();
+    glib::timeout_add_seconds_local(60, tick);
 }
 
 fn main() -> ExitCode {
