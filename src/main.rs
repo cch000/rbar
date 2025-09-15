@@ -1,10 +1,16 @@
-use gio::glib::{self, ExitCode, clone};
+use gio::glib::{self, ExitCode};
 use gtk4::gdk::Display;
 use gtk4::{Application, ApplicationWindow, Label};
 use gtk4::{CssProvider, prelude::*};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use serde::Deserialize;
 use std::error::Error;
+
+#[derive(Clone)]
+struct Host {
+    label: Label,
+    hostname: String,
+}
 
 #[derive(Deserialize)]
 struct Info {
@@ -47,7 +53,7 @@ fn update_label(label: &Label, hostname: &str) {
     }
 }
 
-fn activate_with_hostnames(application: &Application, hostnames: Vec<String>) {
+fn activate_with_hostnames(application: &Application, hostnames: &[String]) {
     let window = ApplicationWindow::new(application);
 
     window.init_layer_shell();
@@ -55,7 +61,7 @@ fn activate_with_hostnames(application: &Application, hostnames: Vec<String>) {
     window.set_default_height(28);
 
     let anchors = [
-        (Edge::Left, true),
+        (Edge::Left, false),
         (Edge::Right, true),
         (Edge::Top, true),
         (Edge::Bottom, false),
@@ -65,45 +71,42 @@ fn activate_with_hostnames(application: &Application, hostnames: Vec<String>) {
         window.set_anchor(*anchor, *state);
     }
 
-    let box_container = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    let box_container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
 
-    let labels: Vec<Label> = hostnames
+    let decor = Label::new(None);
+    decor.set_css_classes(&["purple"]);
+    box_container.append(&decor);
+
+    let hosts: Vec<Host> = hostnames
         .iter()
         .map(|hostname| {
-            let label = Label::new(Some(hostname));
-            label.set_single_line_mode(true);
-            label.set_css_classes(&["hostname-loading"]);
+            let hostname_label = Label::new(Some(&hostname.to_uppercase()));
+            hostname_label.set_single_line_mode(true);
+            hostname_label.set_css_classes(&["hostname-loading"]);
 
-            box_container.append(&label);
-            label
+            box_container.append(&hostname_label);
+            Host {
+                hostname: hostname.to_string(),
+                label: hostname_label,
+            }
         })
         .collect();
 
-    let hostnames_clone = hostnames.clone();
-
-    //Give some margin during startup
-    labels
-        .iter()
-        .zip(hostnames_clone)
-        .for_each(|(label, hostname)| {
-            glib::spawn_future_local(clone!(
-                #[weak]
-                label,
-                async move {
-                    let mut counter = 0;
-                    while poll_server(&hostname).is_err() && counter < 6 {
-                        glib::timeout_future_seconds(5).await;
-                        counter += 1;
-                    }
-                    update_label(&label, &hostname);
-                }
-            ));
+    for host in hosts.clone() {
+        glib::spawn_future_local(async move {
+            let mut attempts = 0;
+            while poll_server(&host.hostname).is_err() && attempts < 6 {
+                glib::timeout_future_seconds(5).await;
+                attempts += 1;
+            }
+            update_label(&host.label, &host.hostname);
         });
+    }
 
     let tick = move || {
-        labels.iter().zip(&hostnames).for_each(|(label, hostname)| {
-            update_label(label, hostname);
-        });
+        for host in &hosts {
+            update_label(&host.label, &host.hostname);
+        }
         glib::ControlFlow::Continue
     };
 
@@ -134,11 +137,10 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
 
-        activate_with_hostnames(app, hostnames);
-        0.into()
+        activate_with_hostnames(app, &hostnames);
+
+        ExitCode::SUCCESS
     });
 
-    application.run();
-
-    ExitCode::SUCCESS
+    application.run()
 }
