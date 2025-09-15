@@ -33,24 +33,32 @@ fn load_css() {
 }
 
 fn poll_server(hostname: &str) -> Result<Info, Box<dyn Error>> {
-    let Ok(res) = reqwest::blocking::get(format!("http://{hostname}:8114/status")) else {
+    let Ok(mut res) = ureq::get(format!("http://{hostname}:8114/status")).call() else {
         return Err(format!("Failed to connect to server {hostname}").into());
     };
 
-    Ok(res.json::<Info>()?)
+    Ok(res.body_mut().read_json::<Info>()?)
 }
 
 fn update_label(label: &Label, hostname: &str) {
-    match poll_server(hostname) {
-        Ok(info) => {
-            if info.status == "running" {
-                label.set_css_classes(&["hostname-running"]);
-            } else {
-                label.set_css_classes(&["hostname-not-running"]);
-            }
+    let css_classes: &[&str];
+    let text: &str;
+
+    if let Ok(info) = poll_server(hostname) {
+        if info.status == "running" {
+            text = "";
+            css_classes = &["hostname-running"];
+        } else {
+            text = hostname;
+            css_classes = &["hostname-not-running"];
         }
-        Err(_) => label.set_css_classes(&["hostname-unreachable"]),
+    } else {
+        text = hostname;
+        css_classes = &["hostname-unreachable"];
     }
+
+    label.set_text(&text.to_uppercase());
+    label.set_css_classes(css_classes);
 }
 
 fn activate_with_hostnames(application: &Application, hostnames: &[String]) {
@@ -58,7 +66,6 @@ fn activate_with_hostnames(application: &Application, hostnames: &[String]) {
 
     window.init_layer_shell();
     window.set_layer(Layer::Background);
-    window.set_default_height(28);
 
     let anchors = [
         (Edge::Left, false),
@@ -71,16 +78,12 @@ fn activate_with_hostnames(application: &Application, hostnames: &[String]) {
         window.set_anchor(*anchor, *state);
     }
 
-    let box_container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-
-    let decor = Label::new(None);
-    decor.set_css_classes(&["purple"]);
-    box_container.append(&decor);
+    let box_container = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
 
     let hosts: Vec<Host> = hostnames
         .iter()
         .map(|hostname| {
-            let hostname_label = Label::new(Some(&hostname.to_uppercase()));
+            let hostname_label = Label::new(None);
             hostname_label.set_single_line_mode(true);
             hostname_label.set_css_classes(&["hostname-loading"]);
 

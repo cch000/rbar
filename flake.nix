@@ -22,7 +22,6 @@
       buildInputs = with pkgs; [
         gtk4-layer-shell
         gtk4
-        openssl
       ];
     };
   in {
