@@ -9,7 +9,7 @@ label.hostname-running {
     background-color: #00b817;
 }
 
-label.hostname-not-running {
+label.hostname-failed {
     background-color: #ff7800;
 }
 

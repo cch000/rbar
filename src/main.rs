@@ -1,16 +1,35 @@
 use gio::glib::{self, ExitCode};
 use gtk4::gdk::Display;
-use gtk4::subclass::window;
 use gtk4::{Application, ApplicationWindow, Label};
 use gtk4::{CssProvider, prelude::*};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use serde::Deserialize;
 use std::error::Error;
+use std::fmt;
+
+#[derive(Clone)]
+struct Hostname(String);
+
+impl fmt::Display for Hostname {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f) // Delegate to the inner String
+    }
+}
+
+#[derive(Clone)]
+struct Ip(String);
+
+impl fmt::Display for Ip {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f) // Delegate to the inner String
+    }
+}
 
 #[derive(Clone)]
 struct Host {
     label: Label,
-    hostname: String,
+    hostname: Hostname,
+    ip: Ip,
 }
 
 #[derive(Deserialize)]
@@ -33,7 +52,7 @@ fn load_css() {
     );
 }
 
-fn poll_server(hostname: &str) -> Result<Info, Box<dyn Error>> {
+fn poll_server(hostname: &Hostname) -> Result<Info, Box<dyn Error>> {
     let Ok(mut res) = ureq::get(format!("http://{hostname}:8114/status")).call() else {
         return Err(format!("Failed to connect to server {hostname}").into());
     };
@@ -41,22 +60,30 @@ fn poll_server(hostname: &str) -> Result<Info, Box<dyn Error>> {
     Ok(res.body_mut().read_json::<Info>()?)
 }
 
-fn update_label(label: &Label, hostname: &str) {
-    let css_classes: &[&str];
-    let text: &str;
+fn poll_local_server(ip: &Ip) -> Result<Info, Box<dyn Error>> {
+    let Ok(mut res) = ureq::get(format!("http://{ip}:8114/status")).call() else {
+        return Err(format!("Failed to connect to server {ip}").into());
+    };
 
-    if let Ok(info) = poll_server(hostname) {
-        if info.status == "running" {
-            text = "";
-            css_classes = &["hostname-running"];
-        } else {
-            text = hostname;
-            css_classes = &["hostname-not-running"];
-        }
-    } else {
-        text = hostname;
-        css_classes = &["hostname-unreachable"];
-    }
+    Ok(res.body_mut().read_json::<Info>()?)
+}
+
+fn update_label(host: &Host) {
+    let hostname = &host.hostname;
+    let ip = &host.ip;
+    let label = &host.label;
+
+    let (text, css_classes) = match poll_server(hostname) {
+        Ok(info) if info.status == "running" => (String::new(), &["hostname-running"]),
+        Ok(_) => (hostname.to_string(), &["hostname-failed"]),
+        Err(_) => match poll_local_server(ip) {
+            Ok(info) if info.status == "running" => {
+                (format!("{hostname}-LOCAL"), &["hostname-running"])
+            }
+            Ok(_) => (format!("{hostname}-LOCAL"), &["hostname-failed"]),
+            Err(_) => (hostname.to_string(), &["hostname-unreachable"]),
+        },
+    };
 
     label.set_text(&text.to_uppercase());
     label.set_css_classes(css_classes);
@@ -83,14 +110,17 @@ fn activate_with_hostnames(application: &Application, hostnames: &[String]) {
 
     let hosts: Vec<Host> = hostnames
         .iter()
-        .map(|hostname| {
+        .map(|host_input| {
             let hostname_label = Label::new(None);
             hostname_label.set_single_line_mode(true);
             hostname_label.set_css_classes(&["hostname-loading"]);
 
+            let (hostname, ip) = host_input.split_once(':').unwrap();
+
             box_container.append(&hostname_label);
             Host {
-                hostname: hostname.to_string(),
+                ip: Ip(ip.to_owned()),
+                hostname: Hostname(hostname.to_owned()),
                 label: hostname_label,
             }
         })
@@ -106,16 +136,16 @@ fn activate_with_hostnames(application: &Application, hostnames: &[String]) {
                 glib::timeout_future_seconds(5).await;
                 attempts += 1;
             }
-            update_label(&host.label, &host.hostname);
+
+            update_label(&host);
         });
     }
 
     let tick = move || {
         for host in &hosts {
-            update_label(&host.label, &host.hostname);
+            update_label(host);
         }
 
-        //reset window size to the minimum
         window.set_default_size(-1, -1);
 
         glib::ControlFlow::Continue
@@ -140,9 +170,16 @@ fn main() -> ExitCode {
             .map(|s| s.clone().into_string().unwrap())
             .collect();
 
-        if hostnames.is_empty() {
+        hostnames.is_empty().then(|| {
             eprintln!("No arguments provided");
-            return ExitCode::FAILURE;
+            ExitCode::FAILURE
+        });
+
+        for s in &hostnames {
+            (!s.contains(':')).then(|| {
+                eprintln!("Malformed input, should be hostname:ip");
+                ExitCode::FAILURE
+            });
         }
 
         activate_with_hostnames(app, &hostnames);
