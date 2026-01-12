@@ -1,13 +1,13 @@
 use gio::glib::{self, ExitCode};
-use gtk4::gdk::Display;
-use gtk4::{Application, ApplicationWindow, Label};
-use gtk4::{CssProvider, prelude::*};
+use gtk4::{Application, ApplicationWindow, Label, prelude::*};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
-use serde::Deserialize;
-use std::error::Error;
 use std::fmt;
+use ureq::Agent;
 
-#[derive(Clone)]
+mod tools;
+use crate::tools::{load_css, poll_server, ureq_setup};
+
+#[derive(Clone, PartialEq, Eq)]
 struct Hostname(String);
 
 impl fmt::Display for Hostname {
@@ -27,71 +27,74 @@ impl fmt::Display for Ip {
 
 #[derive(Clone)]
 struct Host {
-    label: Label,
+    connection: Label,
+    status: Label,
     hostname: Hostname,
     ip: Ip,
 }
 
-#[derive(Deserialize)]
-struct Info {
-    status: String,
-    availmem: f64,
-    totalmem: f64,
-    usedmem: f64,
-    loadvg: Vec<f64>,
-}
+const STATUS_ICON: &str = "";
+const CONNECTION_ICON: &str = "󰊱";
 
-fn load_css() {
-    let provider = CssProvider::new();
-    provider.load_from_string(include_str!("../style.css"));
-
-    gtk4::style_context_add_provider_for_display(
-        &Display::default().expect("Could not connect to a display."),
-        &provider,
-        gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
-    );
-}
-
-fn poll_server(hostname: &Hostname) -> Result<Info, Box<dyn Error>> {
-    let Ok(mut res) = ureq::get(format!("http://{hostname}:8114/status")).call() else {
-        return Err(format!("Failed to connect to server {hostname}").into());
-    };
-
-    Ok(res.body_mut().read_json::<Info>()?)
-}
-
-fn poll_local_server(ip: &Ip) -> Result<Info, Box<dyn Error>> {
-    let Ok(mut res) = ureq::get(format!("http://{ip}:8114/status")).call() else {
-        return Err(format!("Failed to connect to server {ip}").into());
-    };
-
-    Ok(res.body_mut().read_json::<Info>()?)
-}
-
-fn update_label(host: &Host) {
+fn update_host_box(agent: &Agent, host: &Host) {
     let hostname = &host.hostname;
     let ip = &host.ip;
-    let label = &host.label;
+    let connection = &host.connection;
+    let status = &host.status;
 
-    let (text, css_classes) = match poll_server(hostname) {
-        Ok(info) if info.status == "running" => (String::new(), &["hostname-running"]),
-        Ok(_) => (hostname.to_string(), &["hostname-failed"]),
-        Err(_) => match poll_local_server(ip) {
-            Ok(info) if info.status == "running" => {
-                (format!("{hostname}-LOCAL"), &["hostname-running"])
-            }
-            Ok(_) => (format!("{hostname}-LOCAL"), &["hostname-failed"]),
-            Err(_) => (hostname.to_string(), &["hostname-unreachable"]),
+    let (connection_color, info) = poll_server(agent, &hostname.to_string()).map_or_else(
+        |_| {
+            poll_server(agent, &ip.to_string())
+                .map_or((&["red"], None), |info| (&["orange"], Some(info)))
         },
-    };
+        |info| (&["green"], Some(info)),
+    );
 
-    label.set_text(&text.to_uppercase());
-    label.set_css_classes(css_classes);
+    let status_color = if let Some(info) = info {
+        if info.status.eq("running") {
+            &["green"]
+        } else {
+            &["orange"]
+        }
+    } else {
+        &["red"]
+    };
+    connection.set_css_classes(connection_color);
+    status.set_css_classes(status_color);
 }
 
 fn activate_with_hostnames(application: &Application, hostnames: &[String]) {
-    let window = ApplicationWindow::new(application);
+    let agent = ureq_setup();
 
+    let window = layer_setup(application);
+
+    let box_container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+
+    let hosts: Vec<Host> = hostnames
+        .iter()
+        .map(|host_input| host_boxes_setup(&box_container, host_input))
+        .collect();
+
+    window.set_child(Some(&box_container));
+    window.present();
+
+    host_boxes_populate(&agent, &hosts);
+
+    let tick = move || {
+        for host in &hosts {
+            update_host_box(&agent, host);
+        }
+
+        window.set_default_size(-1, -1);
+
+        glib::ControlFlow::Continue
+    };
+
+    glib::timeout_add_seconds_local(60, tick);
+}
+
+fn layer_setup(application: &Application) -> ApplicationWindow {
+    let window = ApplicationWindow::new(application);
     window.init_layer_shell();
     window.set_layer(Layer::Background);
 
@@ -105,53 +108,50 @@ fn activate_with_hostnames(application: &Application, hostnames: &[String]) {
     for (anchor, state) in &anchors {
         window.set_anchor(*anchor, *state);
     }
+    window
+}
 
-    let box_container = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-
-    let hosts: Vec<Host> = hostnames
-        .iter()
-        .map(|host_input| {
-            let hostname_label = Label::new(None);
-            hostname_label.set_single_line_mode(true);
-            hostname_label.set_css_classes(&["hostname-loading"]);
-
-            let (hostname, ip) = host_input.split_once(':').unwrap();
-
-            box_container.append(&hostname_label);
-            Host {
-                ip: Ip(ip.to_owned()),
-                hostname: Hostname(hostname.to_owned()),
-                label: hostname_label,
-            }
-        })
-        .collect();
-
-    window.set_child(Some(&box_container));
-    window.present();
-
-    for host in hosts.clone() {
+fn host_boxes_populate(agent: &Agent, hosts: &[Host]) {
+    for host in hosts.iter().cloned() {
+        let agent = agent.clone();
         glib::spawn_future_local(async move {
             let mut attempts = 0;
-            while poll_server(&host.hostname).is_err() && attempts < 6 {
+            while poll_server(&agent, &host.hostname.to_string()).is_err() && attempts < 6 {
                 glib::timeout_future_seconds(5).await;
                 attempts += 1;
             }
 
-            update_label(&host);
+            update_host_box(&agent, &host);
         });
     }
+}
 
-    let tick = move || {
-        for host in &hosts {
-            update_label(host);
-        }
+fn host_boxes_setup(box_container: &gtk4::Box, host_input: &str) -> Host {
+    let (hostname, ip) = host_input.split_once(':').unwrap();
+    let hostname = hostname.to_uppercase();
+    let host_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    let status = Label::new(Some(STATUS_ICON));
+    status.set_css_classes(&["grey"]);
 
-        window.set_default_size(-1, -1);
+    let connection = Label::new(Some(CONNECTION_ICON));
+    connection.set_css_classes(&["grey"]);
 
-        glib::ControlFlow::Continue
-    };
+    let hostname_label = Label::new(Some(&hostname));
+    hostname_label.set_css_classes(&["hostname"]);
+    hostname_label.set_xalign(1.0);
 
-    glib::timeout_add_seconds_local(60, tick);
+    host_box.append(&hostname_label);
+    host_box.append(&status);
+    host_box.append(&connection);
+
+    box_container.append(&host_box);
+
+    Host {
+        ip: Ip(ip.to_owned()),
+        hostname: Hostname(hostname),
+        status,
+        connection,
+    }
 }
 
 fn main() -> ExitCode {
@@ -164,7 +164,7 @@ fn main() -> ExitCode {
 
     application.connect_command_line(|app, cmdline| {
         let args = cmdline.arguments();
-        let hostnames: Vec<String> = args
+        let mut hostnames: Vec<String> = args
             .iter()
             .skip(1)
             .map(|s| s.clone().into_string().unwrap())
@@ -181,6 +181,8 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             });
         }
+
+        hostnames.sort();
 
         activate_with_hostnames(app, &hostnames);
 
