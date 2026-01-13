@@ -1,6 +1,4 @@
 label {
-    color: black;
-    background-color: black;
     margin-right: 5px;
     padding-right: 5px;
     font-size: x-large;
@@ -22,13 +20,8 @@ label.grey {
     color: grey;
 }
 
-label.purple {
-    color: #6A329F;
-}
-
 box {
     background-color: black;
-    padding: 2px;
 }
 
 window {
@@ -36,7 +29,12 @@ window {
 }
 
 label.hostname {
-    color: grey;
-    min-width: 100px;
+    color: black;
 }
 
+box.host_box {
+    background-color: #6A329F;
+    padding: 3px;
+    margin-left: 3px;
+    margin-bottom: 3px;
+}

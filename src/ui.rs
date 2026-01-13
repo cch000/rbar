@@ -69,7 +69,10 @@ impl HostBox {
     fn setup(box_container: &gtk4::Box, host_input: &str) -> Self {
         let (hostname, ip) = host_input.split_once(':').unwrap();
         let hostname = hostname.to_uppercase();
+
         let host_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        host_box.set_css_classes(&["host_box"]);
+
         let status = Label::new(Some(STATUS_ICON));
         status.set_css_classes(&["grey"]);
 

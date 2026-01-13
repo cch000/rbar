@@ -1,6 +1,6 @@
 use std::{error::Error, time::Duration};
 
-use gtk4::{Application, ApplicationWindow, CssProvider, gdk::Display};
+use gtk4::{Application, ApplicationWindow};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use serde::Deserialize;
 use ureq::Agent;
