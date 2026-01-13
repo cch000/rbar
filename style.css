@@ -3,6 +3,7 @@ label {
     background-color: black;
     margin-right: 5px;
     padding-right: 5px;
+    font-size: x-large;
 }
 
 label.green {

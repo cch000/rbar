@@ -1,6 +1,7 @@
 use std::{error::Error, time::Duration};
 
-use gtk4::{CssProvider, gdk::Display};
+use gtk4::{Application, ApplicationWindow, CssProvider, gdk::Display};
+use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use serde::Deserialize;
 use ureq::Agent;
 
@@ -20,15 +21,22 @@ pub fn ureq_setup() -> Agent {
         .into()
 }
 
-pub fn load_css() {
-    let provider = CssProvider::new();
-    provider.load_from_string(include_str!("../style.css"));
+pub fn layer_setup(application: &Application) -> ApplicationWindow {
+    let window = ApplicationWindow::new(application);
+    window.init_layer_shell();
+    window.set_layer(Layer::Background);
 
-    gtk4::style_context_add_provider_for_display(
-        &Display::default().expect("Could not connect to a display."),
-        &provider,
-        gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
-    );
+    let anchors = [
+        (Edge::Left, false),
+        (Edge::Right, true),
+        (Edge::Top, true),
+        (Edge::Bottom, false),
+    ];
+
+    for (anchor, state) in &anchors {
+        window.set_anchor(*anchor, *state);
+    }
+    window
 }
 
 pub fn poll_server(agent: &Agent, host: &String) -> Result<Info, Box<dyn Error>> {
